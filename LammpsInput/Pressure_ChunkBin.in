@@ -40,7 +40,7 @@ kspace_modify slab 3.0
 pair_modify mix arithmetic 
 bond_style harmonic 
 angle_style harmonic 
-dihedral_style harmonic # fourier 
+dihedral_style fourier 
 improper_style cvff 
 # GAFF
 #pair_modify mix arithmetic 
