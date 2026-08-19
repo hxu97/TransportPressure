@@ -1,0 +1,144 @@
+# Script used in the research 
+# Before running, please appropriatly set all parameters in [square brackets]
+
+# Variable setting 
+# Simulation box dimension
+variable length_x_box equal [length_x_box] # A 
+variable length_y_box equal [length_y_box] # A
+variable length_z_box equal [length_z_box] # A
+variable T equal 300 # K 
+# Generally, the water transport from the bottom to top
+variable pressure_down equal [pressure_down] # Pa, Feed pressure, positive
+variable pressure_up equal [pressure_up] # Pa, Permeate pressure, negative
+# nbins = length_z / bin_interval
+variable nbins equal floor(v_length_z_box/5.0) # 1 
+variable fraction equal 1.0/v_nbins # 1 
+variable number_piston equal [number_piston] # 1, atom number of each piston 
+variable Nevery_avetime equal 100 # 1, Nevery for fix ave/time command
+variable Nrepeat_avetime equal 1000 # 1, Nrepeat for fix ave/time command 
+variable Nfreq_avetime equal 1000000 # 1, Nfreq for fix ave/time command 
+variable Nevery_avechunk equal 100 # 1, Nevery for fix ave/chunk command  
+variable Nrepeat_avechunk equal 1000 # 1, Nrepeat for fix ave/chunk command
+variable Nfreq_avechunk equal 1000000 # 1, Nfreq for fix ave/chunk command  
+    # Unit convert 
+variable A2m equal 1e-10 
+variable kcal2J equal 4184 
+variable mol2unit equal 6.02e23 
+
+# Environment setting
+dimension 3
+boundary p p f 
+units real 
+atom_style full 
+pair_style lj/cut/coul/long 10.0
+neighbor 2.0 bin 
+neigh_modify delay 0 every 1 check yes
+#neigh_modify one 10000
+kspace_style pppm 1.0e-4 
+kspace_modify slab 3.0 
+# CVFF
+pair_modify mix arithmetic 
+bond_style harmonic 
+angle_style harmonic 
+dihedral_style harmonic # fourier 
+improper_style cvff 
+# GAFF
+#pair_modify mix arithmetic 
+#bond_style harmonic 
+#angle_style harmonic 
+#dihedral_style fourier 
+#improper_style cvff 
+# OPLS-AA
+#pair_modify mix geometric 
+#bond_style harmonic 
+#angle_style harmonic 
+#dihedral_style nharmonic   
+#improper_style cvff 
+timestep 1.5 
+
+# Variable setting
+
+# Read initial configuration 
+read_data [lammps_configuration].data 
+set type [water_hydrogen_type] charge 0.417 
+set type [water_oxygen_type] charge -0.834
+pair_coeff 10 11 0.0 1.0
+
+# Group setting 
+group pistondown id [atom_id_of_bottom_piston] 
+group pistonup id [atom_id_of_bottom_piston]
+group fixed_membrane id [atom_id_of_frozen_atoms_in_membrane]
+group water type [water_hydrogen_type] [water_oxygen_type]
+group water_oxygen type [water_oxygen_type] 
+group pistons union pistondown pistonup 
+group membrane subtract all pistons water 
+group flexible_membrane subtract membrane fixed_membrane 
+group NVTgroup union water membrane 
+group stressable_atoms union water flexible_membrane 
+
+
+#region bulk block INF INF INF INF 77. 114.86 units box 
+#region membrane block INF INF INF INF 145.81 323.7 units box 
+#region permeate block INF INF INF INF 347.13 INF units box 
+#group bulk_water_oxygen dynamic water_oxygen region bulk every 100 
+#group membrane_water_oxygen dynamic water_oxygen region membrane every 100 
+#group permeate_water_oxygen dynamic water_oxygen region permeate every 100 
+
+
+# Output setting 
+thermo 10000
+thermo_style custom step vol temp density enthalpy press pe ke etotal evdwl ecoul ebond eangle edihed eimp 
+shell mkdir Press 
+shell mkdir Density 
+dump dump1 all custom 100 ResidueTime.lammpstrj id type mol xu yu zu # Pay attention to your storage space
+dump_modify dump1 sort id 
+
+# Global fix setting 
+velocity fixed_membrane set 0.0 0.0 0.0 units box
+velocity pistons set 0.0 0.0 0.0 units box
+fix fixG1 all wall/reflect zlo EDGE zhi EDGE 
+fix fixG2 fixed_membrane setforce 0.0 0.0 0.0
+fix fixG3 pistons setforce 0.0 0.0 NULL 
+variable force_down equal ${pressure_down}*${length_x_box}*${length_y_box}/${number_piston}*(${A2m}*${A2m}/${kcal2J}*${mol2unit}*${A2m}) 
+variable force_up equal ${pressure_up}*${length_x_box}*${length_y_box}/${number_piston}*(${A2m}*${A2m}/${kcal2J}*${mol2unit}*${A2m}) 
+fix fixG4 pistondown aveforce NULL NULL ${force_down} 
+fix fixG5 pistonup aveforce NULL NULL ${force_up} 
+
+# Run0:
+minimize 1.0e-4 1.0e-6 1000 100000 
+#reset_timestep 0 
+write_data afterMinimize.data
+fix fixG6 water shake 0.001 100 1000 b [bond_type_of_O-H_in_water] a [angle_type_of_H-O-H_in_water]
+
+# Computational setting
+    # Compute water pressure 
+compute bin_water water chunk/atom bin/1d z lower ${fraction} units reduced 
+compute stress_water water stress/atom NULL 
+variable press_water atom -(c_stress_water[1]+c_stress_water[2]+c_stress_water[3])/(3.0*vol*${fraction}) 
+compute bin_press_water water reduce/chunk bin_water sum v_press_water 
+fix fixC1 water ave/time ${Nevery_avetime} ${Nrepeat_avetime} ${Nfreq_avetime} c_bin_press_water mode vector file ./Press/PressWater.txt 
+fix fixC2 water ave/chunk ${Nevery_avechunk} ${Nrepeat_avechunk} ${Nfreq_avechunk} bin_water density/mass file ./Density/DensityWater.txt 
+    # Compute membrane pressure 
+compute bin_membrane flexible_membrane chunk/atom bin/1d z lower ${fraction} units reduced 
+compute stress_membrane flexible_membrane stress/atom NULL 
+variable press_membrane atom -(c_stress_membrane[1]+c_stress_membrane[2]+c_stress_membrane[3])/(3.0*vol*${fraction}) 
+compute bin_press_membrane flexible_membrane reduce/chunk bin_membrane sum v_press_membrane 
+fix fixC3 flexible_membrane ave/time ${Nevery_avetime} ${Nrepeat_avetime} ${Nfreq_avetime} c_bin_press_membrane mode vector file ./Press/PressMembrane.txt 
+fix fixC4 flexible_membrane ave/chunk ${Nevery_avechunk} ${Nrepeat_avechunk} ${Nfreq_avechunk} bin_membrane density/mass file ./Density/DensityMembrane.txt 
+    # Compute all pressure 
+compute bin_all stressable_atoms chunk/atom bin/1d z lower ${fraction} units reduced 
+compute stress_all stressable_atoms stress/atom NULL 
+variable press_all atom -(c_stress_all[1]+c_stress_all[2]+c_stress_all[3])/(3.0*vol*${fraction}) 
+compute bin_press_all stressable_atoms reduce/chunk bin_all sum v_press_all 
+fix fixC5 stressable_atoms ave/time ${Nevery_avetime} ${Nrepeat_avetime} ${Nfreq_avetime} c_bin_press_all mode vector file ./Press/PressAll.txt 
+fix fixC6 stressable_atoms ave/chunk ${Nevery_avechunk} ${Nrepeat_avechunk} ${Nfreq_avechunk} bin_all density/mass file ./Density/DensityAll.txt 
+
+
+# Run1 
+fix fix11 NVTgroup nvt temp $T $T 100.0 
+fix fix12 pistons nve 
+run 100000000 
+write_data finalPush.data 
+unfix fix12 
+unfix fix11
+
