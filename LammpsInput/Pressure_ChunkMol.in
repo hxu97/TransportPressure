@@ -99,41 +99,6 @@ minimize 1.0e-4 1.0e-6 1000 100000
 write_data afterMinimize.data
 fix fixG6 water shake 0.001 100 1000 b [bond_type_of_O-H_in_water] a [angle_type_of_H-O-H_in_water]
 
-# Computational setting
-    # Compute water pressure 
-compute bin_water water chunk/atom molecule nchunk every ids every compress yes 
-compute stress_water water stress/atom NULL 
-compute stress_water_mol water reduce/chunk bin_water sum c_stress_water[1] c_stress_water[2] c_stress_water[3] 
-compute com_water water com/chunk bin_water 
-fix fixC1 water ave/time ${Nevery_avetime} ${Nrepeat_avetime} ${Nfreq_avetime} c_stress_water_mol[*] c_com_water[3] mode vector file ./Press2/PressGas.txt 
-    # Compute membrane pressure 
-compute bin_membrane flexible_membrane chunk/atom bin/1d z lower ${fraction} units reduced 
-compute stress_membrane flexible_membrane stress/atom NULL 
-variable press_membrane atom -(c_stress_membrane[1]+c_stress_membrane[2]+c_stress_membrane[3])/(3.0*vol*${fraction}) 
-compute bin_press_membrane flexible_membrane reduce/chunk bin_membrane sum v_press_membrane 
-fix fixC3 flexible_membrane ave/time ${Nevery_avetime} ${Nrepeat_avetime} ${Nfreq_avetime} c_bin_press_membrane mode vector file ./Press/PressMembrane.txt 
-fix fixC4 flexible_membrane ave/chunk ${Nevery_avechunk} ${Nrepeat_avechunk} ${Nfreq_avechunk} bin_membrane density/mass file ./Density/DensityMembrane.txt 
-    # Compute all pressure 
-compute bin_all stressable_atoms chunk/atom bin/1d z lower ${fraction} units reduced 
-compute stress_all stressable_atoms stress/atom NULL 
-variable press_all atom -(c_stress_all[1]+c_stress_all[2]+c_stress_all[3])/(3.0*vol*${fraction}) 
-compute bin_press_all stressable_atoms reduce/chunk bin_all sum v_press_all 
-fix fixC5 stressable_atoms ave/time ${Nevery_avetime} ${Nrepeat_avetime} ${Nfreq_avetime} c_bin_press_all mode vector file ./Press/PressAll.txt 
-fix fixC6 stressable_atoms ave/chunk ${Nevery_avechunk} ${Nrepeat_avechunk} ${Nfreq_avechunk} bin_all density/mass file ./Density/DensityAll.txt 
-    # Flux 
-variable z_pistondown equal xcm(pistondown,z)
-variable z_pistonup equal xcm(pistonup,z)
-fix fixC7 all ave/time 10 100 10000 v_z_pistondown v_z_pistonup file ./Flux/PistonMovement.txt 
-variable n_permeate_water_oxygen equal count(permeate_water_oxygen) 
-fix fixC10 all ave/time 10 100 10000 v_n_permeate_water_oxygen file ./Flux/PermeateWaterOxygen.txt 
-    # Radial distribution fucntions 
-compute rdf_bulk bulk_water_oxygen rdf 100 11 11 
-compute rdf_membrane membrane_water_oxygen rdf 100 11 11 
-fix fixC8 all ave/time ${Nevery_avetime} ${Nrepeat_avetime} ${Nfreq_avetime} c_rdf_bulk[*] mode vector file ./RDF/RDFBulk.txt 
-fix fixC9 all ave/time ${Nevery_avetime} ${Nrepeat_avetime} ${Nfreq_avetime} c_rdf_membrane[*] mode vector file ./RDF/RDFMembrane.txt 
-dump dump1 all custom 100 ResidueTime.lammpstrj id type mol xu yu zu # Pay attention to your storage space
-dump_modify dump1 sort id 
-
 # Run1 
 fix fix11 NVTgroup nvt temp $T $T 100.0 
 fix fix12 pistons nve 
